@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Room Temperature Monitoring - Formal</title>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Reset dan dasar styling */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #eef2f7;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+      cursor: none; /* sembunyikan kursor default */
+    }
+    /* Elemen yang mengikuti kursor (subtle shadow effect) */
+    #cursor-follower {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 15px;
+      height: 15px;
+      border: 2px solid #0073e6;
+      border-radius: 50%;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      transition: transform 0.1s ease-out;
+      z-index: 1000;
+      background: rgba(0, 115, 230, 0.1);
+    }
+    header {
+      width: 100%;
+      padding: 20px 0;
+      background: #0073e6;
+      color: #fff;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+    }
+    header h1 { margin: 0; font-size: 2rem; }
+    .container {
+      width: 100%;
+      max-width: 900px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 30px;
+    }
+    .current-values, .chart-section, .history {
+      margin-bottom: 30px;
+    }
+    .current-values h2, .chart-section h2, .history h2 {
+      margin-top: 0;
+      color: #0073e6;
+      border-bottom: 2px solid #0073e6;
+      padding-bottom: 5px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    .reading {
+      display: flex;
+      justify-content: space-around;
+      text-align: center;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      background: #f9f9f9;
+    }
+    .reading div { flex: 1; }
+    .reading div:not(:last-child) { border-right: 1px solid #ccc; }
+    .reading h3 {
+      font-size: 1.8rem;
+      margin-bottom: 5px;
+      color: #0073e6;
+    }
+    .chart-section canvas {
+      background: #f4f6f9;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    .history table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    .history th, .history td {
+      padding: 10px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+    .history th {
+      background: #e6f0fa;
+    }
+    @media(max-width: 600px) {
+      .reading { flex-direction: column; }
+      .reading div:not(:last-child) {
+        border-right: none;
+        border-bottom: 1px solid #ccc;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Elemen yang mengikuti kursor -->
+  <div id="cursor-follower"></div>
+
+  <header>
+    <h1>Room Temperature Monitoring</h1>
+  </header>
+
+  <div class="container current-values">
+    <h2>Nilai Saat Ini</h2>
+    <div class="reading">
+      <div>
+        <h3 id="current-temperature">-- °C</h3>
+        <p>Suhu</p>
+      </div>
+      <div>
+        <h3 id="current-humidity">-- %</h3>
+        <p>Kelembapan</p>
+      </div>
+      <div>
+        <h3 id="current-timestamp">--</h3>
+        <p>Waktu Update</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="container chart-section">
+    <h2>Grafik Suhu Real-time</h2>
+    <canvas id="temperatureChart"></canvas>
+  </div>
+
+  <div class="container history">
+    <h2>Riwayat Data Sensor (10 Entri Terakhir)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Waktu</th>
+          <th>Suhu (°C)</th>
+          <th>Kelembapan (%)</th>
+        </tr>
+      </thead>
+      <tbody id="sensor-history">
+        <tr><td colspan="3">Memuat data...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Firebase SDK dan integrasi realtime -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+    import { getDatabase, ref, onValue, query, limitToLast } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-database.js";
+
+    // Konfigurasi Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyAhPs5IIFZWDV_NuLGNiz1aGyivROkJqFg",
+      authDomain: "room-temperature-m-onitoring.firebaseapp.com",
+      databaseURL: "https://room-temperature-m-onitoring-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "room-temperature-m-onitoring",
+      storageBucket: "room-temperature-m-onitoring.firebasestorage.app",
+      messagingSenderId: "469315182226",
+      appId: "1:469315182226:web:84b73d4f0ededea6a5904b"
+    };
+
+    // Inisialisasi Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // Update Nilai Saat Ini
+    const tempRef = ref(db, "current_values/dht22_temperature");
+    const humRef = ref(db, "current_values/dht22_humidity");
+    const timeRef = ref(db, "current_values/last_update");
+
+    onValue(tempRef, (snapshot) => {
+      const temperature = snapshot.val();
+      document.getElementById("current-temperature").textContent = temperature !== null ? temperature + " °C" : "-- °C";
+      const newTemp = parseFloat(temperature);
+      if (!isNaN(newTemp)) {
+        addChartData(newTemp);
+      }
+    });
+
+    onValue(humRef, (snapshot) => {
+      const humidity = snapshot.val();
+      document.getElementById("current-humidity").textContent = humidity !== null ? humidity + " %" : "-- %";
+    });
+
+    onValue(timeRef, (snapshot) => {
+      const time = snapshot.val();
+      document.getElementById("current-timestamp").textContent = time !== null ? time : "--";
+    });
+
+    // Update Riwayat Data Sensor (10 entri terakhir)
+    const sensorHistoryRef = query(ref(db, "sensor_readings"), limitToLast(10));
+    onValue(sensorHistoryRef, (snapshot) => {
+      const data = snapshot.val();
+      const historyBody = document.getElementById("sensor-history");
+      historyBody.innerHTML = "";
+      if (data) {
+        const entries = Object.entries(data).sort((a, b) => b[0] - a[0]);
+        entries.forEach(([key, entry]) => {
+          const row = document.createElement("tr");
+          const tdTime = document.createElement("td");
+          const tdTemp = document.createElement("td");
+          const tdHum = document.createElement("td");
+          tdTime.textContent = entry.timestamp || "--";
+          tdTemp.textContent = entry.temperature !== undefined ? entry.temperature : "--";
+          tdHum.textContent = entry.humidity !== undefined ? entry.humidity : "--";
+          row.appendChild(tdTime);
+          row.appendChild(tdTemp);
+          row.appendChild(tdHum);
+          historyBody.appendChild(row);
+        });
+      } else {
+        historyBody.innerHTML = "<tr><td colspan='3'>Data sensor tidak tersedia</td></tr>";
+      }
+    });
+
+    // Konfigurasi Chart.js untuk grafik suhu realtime
+    const ctx = document.getElementById('temperatureChart').getContext('2d');
+    const temperatureChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Suhu (°C)',
+          data: [],
+          backgroundColor: 'rgba(0, 115, 230, 0.2)',
+          borderColor: 'rgba(0, 115, 230, 1)',
+          borderWidth: 2,
+          tension: 0.2,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            title: { display: true, text: 'Waktu' },
+            ticks: { autoSkip: true, maxTicksLimit: 10 }
+          },
+          y: {
+            title: { display: true, text: 'Suhu (°C)' },
+            suggestedMin: 0,
+            suggestedMax: 50
+          }
+        }
+      }
+    });
+
+    // Fungsi untuk menambahkan data baru ke grafik
+    function addChartData(newTemp) {
+      const now = new Date();
+      const timeLabel = now.toLocaleTimeString();
+      temperatureChart.data.labels.push(timeLabel);
+      temperatureChart.data.datasets[0].data.push(newTemp);
+      if(temperatureChart.data.labels.length > 20) {
+        temperatureChart.data.labels.shift();
+        temperatureChart.data.datasets[0].data.shift();
+      }
+      temperatureChart.update();
+    }
+
+    // Animasi elemen yang mengikuti kursor
+    const cursorFollower = document.getElementById("cursor-follower");
+    document.addEventListener("mousemove", (e) => {
+      cursorFollower.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+    });
+  </script>
+</body>
+</html>
